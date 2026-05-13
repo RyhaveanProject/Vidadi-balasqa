@@ -46,11 +46,13 @@ class Settings:
     WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "base")
     WHISPER_COMPUTE_TYPE: str = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
     WHISPER_LANGUAGE: str = os.getenv("WHISPER_LANGUAGE", "az")
+    WHISPER_CPU_THREADS: int = _get_int("WHISPER_CPU_THREADS", 2)
 
     # TTS
     TTS_VOICE: str = os.getenv("TTS_VOICE", "az-AZ-BabekNeural")
     TTS_RATE: str = os.getenv("TTS_RATE", "+5%")
     TTS_PITCH: str = os.getenv("TTS_PITCH", "+0Hz")
+    TTS_MAX_CHARS: int = _get_int("TTS_MAX_CHARS", 600)
 
     # Personality
     BOT_NAME: str = os.getenv("BOT_NAME", "Vidadi")
@@ -61,9 +63,14 @@ class Settings:
     # Behaviour
     CHAT_REPLY_PROBABILITY: float = _get_float("CHAT_REPLY_PROBABILITY", 0.18)
     IDLE_CHAT_INTERVAL_SEC: int = _get_int("IDLE_CHAT_INTERVAL_SEC", 900)
+
+    # Realtime VAD tuning (lower silence_end = faster reply, but more interruptions)
     VAD_AGGRESSIVENESS: int = _get_int("VAD_AGGRESSIVENESS", 2)
-    MIN_SPEECH_MS: int = _get_int("MIN_SPEECH_MS", 400)
-    SILENCE_END_MS: int = _get_int("SILENCE_END_MS", 700)
+    MIN_SPEECH_MS: int = _get_int("MIN_SPEECH_MS", 300)
+    SILENCE_END_MS: int = _get_int("SILENCE_END_MS", 500)
+
+    # Full-duplex
+    INTERRUPT_ENABLED: bool = os.getenv("INTERRUPT_ENABLED", "true").lower() in ("1", "true", "yes")
 
     def validate(self) -> None:
         missing = []
