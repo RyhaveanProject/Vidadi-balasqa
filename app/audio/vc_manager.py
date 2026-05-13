@@ -73,7 +73,7 @@ class VCManager:
                     MediaStream(
                         silent,
                         audio_parameters=AudioQuality.HIGH,
-                        video_flags=MediaStream.IGNORE,
+                        video_flags=MediaStream.Flags.IGNORE,
                     ),
                 )
                 self.active_chats[chat_id] = pipeline
@@ -119,7 +119,7 @@ class VCManager:
                         MediaStream(
                             wav,
                             audio_parameters=AudioQuality.HIGH,
-                            video_flags=MediaStream.IGNORE,
+                            video_flags=MediaStream.Flags.IGNORE,
                         ),
                     )
                     log.info("VC speaking [{}]: {}", chat_id, text[:80])
