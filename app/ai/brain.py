@@ -123,14 +123,19 @@ def _post_filter(text: str) -> str:
 
 
 def _normalize_gemini_model(name: str) -> str:
-    # google-generativeai expects names like "gemini-1.5-flash" or "gemini-2.0-flash"
-    mapping = {
-        "gemini-2.5-flash": "gemini-2.0-flash-exp",
-        "gemini-2.5-pro": "gemini-1.5-pro",
-        "gemini-3-flash-preview": "gemini-2.0-flash-exp",
-        "gemini-3.1-pro-preview": "gemini-1.5-pro",
+    # google-generativeai 0.8.x supports current Gemini model IDs directly.
+    # The previous mapping pinned to `gemini-2.0-flash-exp`, which Google has
+    # since retired — causing every API call to 404 and the brain to fall
+    # back to the same 3 hard-coded lines (the "AI keeps repeating itself"
+    # bug reported by the owner). We pass the env-configured model name
+    # through unchanged when it's a known current model, and only remap
+    # legacy aliases.
+    legacy_mapping = {
+        "gemini-3-flash-preview": "gemini-2.5-flash",
+        "gemini-3.1-pro-preview": "gemini-2.5-pro",
+        "gemini-2.0-flash-exp": "gemini-2.0-flash",
     }
-    return mapping.get(name, name)
+    return legacy_mapping.get(name, name)
 
 
 brain = Brain.__new__(Brain)  # lazy init below
