@@ -1,21 +1,22 @@
 """Group chat handler — replies with Vidadi personality.
 
 Behaviour:
-- Always processes mentions / replies to the userbot.
-- Otherwise replies with low probability so the bot doesn't spam.
-- Lowers reply probability while a VC session is active in the same chat.
-- Tracks every message into memory.
+- Reply ONLY when:
+    a) someone replies directly to one of Vidadi's messages, OR
+    b) the message mentions Vidadi by name (text mention or @username).
+- Otherwise stays silent (no random replies — owner request).
+- Tracks every message into memory for context.
 """
 from __future__ import annotations
 
 import asyncio
 import random
+import re
 
 from pyrogram import Client, filters
-from pyrogram.enums import ChatType
+from pyrogram.enums import ChatType, MessageEntityType
 from pyrogram.types import Message
 
-from app.config.settings import settings
 from app.audio.vc_manager import VCManager
 from app.memory import user_memory
 from app.ai.brain import get_brain
@@ -23,15 +24,50 @@ from app.handlers.filters import RateLimiter
 from app.core.logger import log
 
 
-def register(client: Client, vc: VCManager) -> None:
-    rl = RateLimiter(per_seconds=3.0)
-    me_id_holder: dict[str, int] = {}
+# Name aliases that count as a mention of Vidadi.
+_NAME_ALIASES = ("vidadi", "vido", "vidos", "vidadicik", "vidadiy")
+_WORD_RE = re.compile(r"[a-zəğıöşüçA-ZƏĞİÖŞÜÇ0-9]+")
 
-    async def _me_id() -> int:
-        if "id" not in me_id_holder:
+
+def _mentions_by_name(text: str) -> bool:
+    """True if any whole word in text matches a Vidadi alias."""
+    if not text:
+        return False
+    low = text.lower()
+    # quick substring prefilter
+    if not any(a in low for a in _NAME_ALIASES):
+        return False
+    # whole-word check to avoid false positives like "individual"
+    for word in _WORD_RE.findall(low):
+        if word in _NAME_ALIASES:
+            return True
+    return False
+
+
+def _mentions_by_entity(m: Message, my_id: int, my_username: str | None) -> bool:
+    """True if Telegram entities reference the userbot (text_mention or @username)."""
+    entities = (m.entities or []) + (m.caption_entities or [])
+    text = m.text or m.caption or ""
+    for ent in entities:
+        if ent.type == MessageEntityType.TEXT_MENTION and ent.user and ent.user.id == my_id:
+            return True
+        if ent.type == MessageEntityType.MENTION and my_username:
+            chunk = text[ent.offset:ent.offset + ent.length].lstrip("@").lower()
+            if chunk == my_username.lower():
+                return True
+    return False
+
+
+def register(client: Client, vc: VCManager) -> None:
+    rl = RateLimiter(per_seconds=2.0)
+    me_cache: dict[str, object] = {}
+
+    async def _me() -> tuple[int, str | None]:
+        if "id" not in me_cache:
             me = await client.get_me()
-            me_id_holder["id"] = me.id
-        return me_id_holder["id"]
+            me_cache["id"] = me.id
+            me_cache["username"] = me.username
+        return me_cache["id"], me_cache.get("username")
 
     @client.on_message(filters.text & ~filters.bot & ~filters.me)
     async def on_text(_, m: Message):
@@ -54,22 +90,19 @@ def register(client: Client, vc: VCManager) -> None:
         except Exception as e:
             log.warning("memory store error: {}", e)
 
-        me_id = await _me_id()
-        is_reply_to_me = (
+        my_id, my_username = await _me()
+
+        is_reply_to_me = bool(
             m.reply_to_message
             and m.reply_to_message.from_user
-            and m.reply_to_message.from_user.id == me_id
+            and m.reply_to_message.from_user.id == my_id
         )
-        mentions_me = bool(re_match_name(text))
+        mentions_me = _mentions_by_entity(m, my_id, my_username) or _mentions_by_name(text)
 
-        # Reduce activity when busy in VC
-        base_prob = settings.CHAT_REPLY_PROBABILITY
-        if vc.is_in_vc(m.chat.id):
-            base_prob *= 0.3
-
-        triggered = is_reply_to_me or mentions_me or (random.random() < base_prob)
-        if not triggered:
+        # OWNER REQUEST: reply ONLY on direct reply or name mention.
+        if not (is_reply_to_me or mentions_me):
             return
+
         if not rl.allow(m.from_user.id):
             return
 
@@ -78,7 +111,7 @@ def register(client: Client, vc: VCManager) -> None:
             await client.send_chat_action(m.chat.id, "typing")
         except Exception:
             pass
-        await asyncio.sleep(random.uniform(0.8, 2.4))
+        await asyncio.sleep(random.uniform(0.6, 1.8))
 
         try:
             history = await user_memory.context_for(m.chat.id, limit=10)
@@ -86,18 +119,7 @@ def register(client: Client, vc: VCManager) -> None:
             reply = await brain.reply(text, speaker_name, history, in_voice_chat=False)
             if not reply:
                 return
-            # Occasionally reply, occasionally just send
-            if is_reply_to_me or mentions_me or random.random() < 0.5:
-                await m.reply_text(reply, quote=True)
-            else:
-                await client.send_message(m.chat.id, reply)
+            # Always reply with quote so the user sees the context.
+            await m.reply_text(reply, quote=True)
         except Exception as e:
             log.exception("chat reply failed: {}", e)
-
-
-_NAME_PATTERNS = ("vidadi", "Vidadi", "VIDADI", "vido", "vidos")
-
-
-def re_match_name(text: str) -> bool:
-    low = text.lower()
-    return any(p.lower() in low for p in _NAME_PATTERNS)
